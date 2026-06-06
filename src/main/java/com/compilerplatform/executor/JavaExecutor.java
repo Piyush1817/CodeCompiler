@@ -3,49 +3,41 @@ package com.compilerplatform.executor;
 import com.compilerplatform.dto.ExecuteResponse;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import java.nio.charset.StandardCharsets;
-
 import java.util.concurrent.TimeUnit;
-
-
+import java.io.InputStream;
 @Component
 public class JavaExecutor implements CodeExecutor {
 
     @Override
     public ExecuteResponse execute(String code, String input) {
 
+        long startTime = System.currentTimeMillis(); //for total time
+        Path tempDir = null;
+
         try {
 
             // Create temporary folder
-            Path tempDir = Files.createTempDirectory("compiler-");
+            tempDir = Files.createTempDirectory("compiler-");
 
-            // Create Main.java path
-            Path javaFile = tempDir.resolve("Main.java");
+           //create Main.java and write code in Main.java
+            writeSourceCode(
+                    tempDir,
+                    code
+            );
 
-            // Write user code into Main.java
-            Files.writeString(javaFile, code);
+            // Compile
+            Process compileProcess =
+                    compileCode(tempDir);
 
-            ProcessBuilder compileBuilder =
-                    new ProcessBuilder(
-                            "javac",
-                            "Main.java"
-                    );
-
-            compileBuilder.directory(tempDir.toFile());
-
-            Process compileProcess = compileBuilder.start(); //start compiling
-
-            int compileExitCode = compileProcess.waitFor(); // wait for to complete compilation
+            int compileExitCode =
+                    compileProcess.waitFor();
 
             String compileErrors =
-                    new String(
-                            compileProcess
-                                    .getErrorStream()
-                                    .readAllBytes(),
-                            StandardCharsets.UTF_8
+                    readStream(
+                            compileProcess.getErrorStream()
                     );
 
             if (compileExitCode != 0) {
@@ -54,35 +46,29 @@ public class JavaExecutor implements CodeExecutor {
                         .status("COMPILATION_ERROR")
                         .output("")
                         .error(compileErrors)
-                        .executionTime(0)
+                        .executionTime(
+                                System.currentTimeMillis()
+                                        - startTime
+                        )
                         .build();
             }
+            long executionStartTime =
+                    System.currentTimeMillis(); //to calculate execution time
+            // Execute
+            Process runProcess =
+                    executeCode(tempDir);
 
-            ProcessBuilder runBuilder =
-                    new ProcessBuilder(
-                            "java",
-                            "Main"
-                    );
-            runBuilder.directory(tempDir.toFile());
-            Process runProcess =runBuilder.start();  //start execution
+            // Send input
+            sendInput(
+                    runProcess,
+                    input
+            );
 
-            if (input != null && !input.isBlank()) {
-
-                runProcess.getOutputStream()
-                        .write(input.getBytes(StandardCharsets.UTF_8));
-
-                runProcess.getOutputStream()
-                        .flush();
-
-                runProcess.getOutputStream()
-                        .close();
-            }
 
             boolean finished =
-                    runProcess.waitFor(
-                            5,
-                            TimeUnit.SECONDS
-                    ); //wait for execution to finish
+                    waitForExecution(
+                            runProcess
+                    );
 
             if (!finished) {
 
@@ -92,24 +78,45 @@ public class JavaExecutor implements CodeExecutor {
                         .status("TIMEOUT")
                         .output("")
                         .error("Program execution exceeded 5 seconds.")
-                        .executionTime(5000)
+                        .executionTime(
+                                System.currentTimeMillis()
+                                        - executionStartTime
+                        )
                         .build();
             }
 
+            // Read normal output
             String output =
-                    new String(
-                            runProcess
-                                    .getInputStream()
-                                    .readAllBytes(),
-                            StandardCharsets.UTF_8
+                    readStream(
+                            runProcess.getInputStream()
                     );
 
+            // Read runtime errors
+            String runtimeErrors =
+                    readStream(
+                            runProcess.getErrorStream()
+                    );
+            if (!runtimeErrors.isBlank()) {
+
+                return ExecuteResponse.builder()
+                        .status("RUNTIME_ERROR")
+                        .output("")
+                        .error(runtimeErrors)
+                        .executionTime(
+                                System.currentTimeMillis()
+                                        - executionStartTime
+                        )
+                        .build();
+            }
 
             return ExecuteResponse.builder()
                     .status("SUCCESS")
                     .output(output)
                     .error("")
-                    .executionTime(0)
+                    .executionTime(
+                            System.currentTimeMillis()
+                                    - executionStartTime
+                    )
                     .build();
 
         } catch (Exception e) {
@@ -118,8 +125,125 @@ public class JavaExecutor implements CodeExecutor {
                     .status("ERROR")
                     .output("")
                     .error(e.getMessage())
-                    .executionTime(0)
+                    .executionTime(
+                            System.currentTimeMillis()
+                                    - startTime
+                    )
                     .build();
+
+        } finally {
+
+            if (tempDir != null) {
+                deleteDirectory(tempDir);
+            }
         }
+    }
+
+    private void deleteDirectory(Path path) {
+
+        try {
+
+            Files.walk(path)
+                    .sorted((a, b) -> b.compareTo(a))
+                    .forEach(file -> {
+                        try {
+                            Files.delete(file);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    });
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    private String readStream(
+            InputStream stream
+    ) throws Exception {
+
+        return new String(
+                stream.readAllBytes(),
+                StandardCharsets.UTF_8
+        );
+    }
+
+    private Process compileCode(
+            Path tempDir
+    ) throws Exception {
+
+        ProcessBuilder compileBuilder =
+                new ProcessBuilder(
+                        "javac",
+                        "Main.java"
+                );
+
+        compileBuilder.directory(
+                tempDir.toFile()
+        );
+
+        return compileBuilder.start();
+    }
+
+    private Process executeCode(
+            Path tempDir
+    ) throws Exception {
+
+        ProcessBuilder runBuilder =
+                new ProcessBuilder(
+                        "java",
+                        "Main"
+                );
+
+        runBuilder.directory(
+                tempDir.toFile()
+        );
+
+        return runBuilder.start();
+    }
+    private void writeSourceCode(
+            Path tempDir,
+            String code
+    ) throws Exception {
+
+        Path javaFile =
+                tempDir.resolve(
+                        "Main.java"
+                );
+
+        Files.writeString(
+                javaFile,
+                code
+        );
+    }
+    private void sendInput(
+            Process runProcess,
+            String input
+    ) throws Exception {
+
+        if (input != null && !input.isBlank()) {
+
+            runProcess.getOutputStream()
+                    .write(
+                            input.getBytes(
+                                    StandardCharsets.UTF_8
+                            )
+                    );
+
+            runProcess.getOutputStream()
+                    .flush();
+
+            runProcess.getOutputStream()
+                    .close();
+        }
+    }
+
+    private boolean waitForExecution(
+            Process runProcess
+    ) throws Exception {
+
+        return runProcess.waitFor(
+                5,
+                TimeUnit.SECONDS
+        );
     }
 }
