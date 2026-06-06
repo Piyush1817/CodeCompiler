@@ -246,4 +246,8 @@ public class JavaExecutor implements CodeExecutor {
                 TimeUnit.SECONDS
         );
     }
+    @Override
+    public String getLanguage() {
+        return "java";
+    }
 }
