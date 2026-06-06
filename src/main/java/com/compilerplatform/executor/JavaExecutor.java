@@ -8,6 +8,8 @@ import java.nio.file.Path;
 
 import java.nio.charset.StandardCharsets;
 
+import java.util.concurrent.TimeUnit;
+
 
 @Component
 public class JavaExecutor implements CodeExecutor {
@@ -76,7 +78,23 @@ public class JavaExecutor implements CodeExecutor {
                         .close();
             }
 
-            runProcess.waitFor(); //wait for execution to finish
+            boolean finished =
+                    runProcess.waitFor(
+                            5,
+                            TimeUnit.SECONDS
+                    ); //wait for execution to finish
+
+            if (!finished) {
+
+                runProcess.destroyForcibly();
+
+                return ExecuteResponse.builder()
+                        .status("TIMEOUT")
+                        .output("")
+                        .error("Program execution exceeded 5 seconds.")
+                        .executionTime(5000)
+                        .build();
+            }
 
             String output =
                     new String(
