@@ -5,39 +5,48 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-
+import java.util.concurrent.TimeUnit;
 
 @Component
-public class JavaExecutor extends AbstractExecutor {
+public class CppExecutor extends AbstractExecutor {
 
     @Override
-    public ExecuteResponse execute(String code, String input) {
+    public ExecuteResponse execute(
+            String code,
+            String input
+    ) {
 
-        long startTime = System.currentTimeMillis(); //for total time
+        long startTime =
+                System.currentTimeMillis();
+
         Path tempDir = null;
 
         try {
 
-            // Create temporary folder
-            tempDir = Files.createTempDirectory("compiler-");
+            tempDir =
+                    Files.createTempDirectory(
+                            "compiler-"
+                    );
 
-           //create Main.java and write code in Main.java
             writeSourceCode(
                     tempDir,
-                    "Main.java",
+                    "main.cpp",
                     code
             );
 
-            // Compile
             Process compileProcess =
-                    compileCode(tempDir);
+                    compileCode(
+                            tempDir
+                    );
 
             int compileExitCode =
                     compileProcess.waitFor();
 
+
             String compileErrors =
                     readStream(
-                            compileProcess.getErrorStream()
+                            compileProcess
+                                    .getErrorStream()
                     );
 
             if (compileExitCode != 0) {
@@ -52,22 +61,24 @@ public class JavaExecutor extends AbstractExecutor {
                         )
                         .build();
             }
-            long executionStartTime =
-                    System.currentTimeMillis(); //to calculate execution time
-            // Execute
-            Process runProcess =
-                    executeCode(tempDir);
 
-            // Send input
+            long executionStartTime =
+                    System.currentTimeMillis();
+
+            Process runProcess =
+                    executeCode(
+                            tempDir
+                    );
+
             sendInput(
                     runProcess,
                     input
             );
 
-
             boolean finished =
-                    waitForExecution(
-                            runProcess
+                    runProcess.waitFor(
+                            5,
+                            TimeUnit.SECONDS
                     );
 
             if (!finished) {
@@ -85,17 +96,16 @@ public class JavaExecutor extends AbstractExecutor {
                         .build();
             }
 
-            // Read normal output
             String output =
                     readStream(
                             runProcess.getInputStream()
                     );
 
-            // Read runtime errors
             String runtimeErrors =
                     readStream(
                             runProcess.getErrorStream()
                     );
+
             if (!runtimeErrors.isBlank()) {
 
                 return ExecuteResponse.builder()
@@ -134,48 +144,48 @@ public class JavaExecutor extends AbstractExecutor {
         } finally {
 
             if (tempDir != null) {
-                deleteDirectory(tempDir);
+                deleteDirectory(
+                        tempDir
+                );
             }
         }
     }
-
 
     private Process compileCode(
             Path tempDir
     ) throws Exception {
 
-        ProcessBuilder compileBuilder =
+        ProcessBuilder builder =
                 new ProcessBuilder(
-                        "javac",
-                        "Main.java"
+                        "g++",
+                        "main.cpp",
+                        "-o",
+                        "main.exe"
                 );
 
-        compileBuilder.directory(
+        builder.directory(
                 tempDir.toFile()
         );
 
-        return compileBuilder.start();
+        return builder.start();
     }
 
     private Process executeCode(
             Path tempDir
     ) throws Exception {
 
-        ProcessBuilder runBuilder =
+        ProcessBuilder builder =
                 new ProcessBuilder(
-                        "java",
-                        "Main"
+                        tempDir
+                                .resolve("main.exe")
+                                .toString()
                 );
 
-        runBuilder.directory(
-                tempDir.toFile()
-        );
-
-        return runBuilder.start();
+        return builder.start();
     }
 
     @Override
     public String getLanguage() {
-        return "java";
+        return "cpp";
     }
 }

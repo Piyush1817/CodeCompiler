@@ -6,64 +6,43 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-
 @Component
-public class JavaExecutor extends AbstractExecutor {
+public class PythonExecutor
+        extends AbstractExecutor {
 
     @Override
-    public ExecuteResponse execute(String code, String input) {
+    public ExecuteResponse execute(
+            String code,
+            String input
+    ) {
 
-        long startTime = System.currentTimeMillis(); //for total time
+        long startTime =
+                System.currentTimeMillis();
+
         Path tempDir = null;
 
         try {
 
-            // Create temporary folder
-            tempDir = Files.createTempDirectory("compiler-");
+            tempDir =
+                    Files.createTempDirectory(
+                            "compiler-"
+                    );
 
-           //create Main.java and write code in Main.java
             writeSourceCode(
                     tempDir,
-                    "Main.java",
+                    "main.py",
                     code
             );
 
-            // Compile
-            Process compileProcess =
-                    compileCode(tempDir);
-
-            int compileExitCode =
-                    compileProcess.waitFor();
-
-            String compileErrors =
-                    readStream(
-                            compileProcess.getErrorStream()
+            Process runProcess =
+                    executeCode(
+                            tempDir
                     );
 
-            if (compileExitCode != 0) {
-
-                return ExecuteResponse.builder()
-                        .status("COMPILATION_ERROR")
-                        .output("")
-                        .error(compileErrors)
-                        .executionTime(
-                                System.currentTimeMillis()
-                                        - startTime
-                        )
-                        .build();
-            }
-            long executionStartTime =
-                    System.currentTimeMillis(); //to calculate execution time
-            // Execute
-            Process runProcess =
-                    executeCode(tempDir);
-
-            // Send input
             sendInput(
                     runProcess,
                     input
             );
-
 
             boolean finished =
                     waitForExecution(
@@ -77,25 +56,26 @@ public class JavaExecutor extends AbstractExecutor {
                 return ExecuteResponse.builder()
                         .status("TIMEOUT")
                         .output("")
-                        .error("Program execution exceeded 5 seconds.")
+                        .error(
+                                "Program execution exceeded 5 seconds."
+                        )
                         .executionTime(
                                 System.currentTimeMillis()
-                                        - executionStartTime
+                                        - startTime
                         )
                         .build();
             }
 
-            // Read normal output
             String output =
                     readStream(
                             runProcess.getInputStream()
                     );
 
-            // Read runtime errors
             String runtimeErrors =
                     readStream(
                             runProcess.getErrorStream()
                     );
+
             if (!runtimeErrors.isBlank()) {
 
                 return ExecuteResponse.builder()
@@ -104,7 +84,7 @@ public class JavaExecutor extends AbstractExecutor {
                         .error(runtimeErrors)
                         .executionTime(
                                 System.currentTimeMillis()
-                                        - executionStartTime
+                                        - startTime
                         )
                         .build();
             }
@@ -115,7 +95,7 @@ public class JavaExecutor extends AbstractExecutor {
                     .error("")
                     .executionTime(
                             System.currentTimeMillis()
-                                    - executionStartTime
+                                    - startTime
                     )
                     .build();
 
@@ -124,7 +104,9 @@ public class JavaExecutor extends AbstractExecutor {
             return ExecuteResponse.builder()
                     .status("ERROR")
                     .output("")
-                    .error(e.getMessage())
+                    .error(
+                            e.getMessage()
+                    )
                     .executionTime(
                             System.currentTimeMillis()
                                     - startTime
@@ -134,37 +116,20 @@ public class JavaExecutor extends AbstractExecutor {
         } finally {
 
             if (tempDir != null) {
-                deleteDirectory(tempDir);
+                deleteDirectory(
+                        tempDir
+                );
             }
         }
     }
-
-
-    private Process compileCode(
-            Path tempDir
-    ) throws Exception {
-
-        ProcessBuilder compileBuilder =
-                new ProcessBuilder(
-                        "javac",
-                        "Main.java"
-                );
-
-        compileBuilder.directory(
-                tempDir.toFile()
-        );
-
-        return compileBuilder.start();
-    }
-
     private Process executeCode(
             Path tempDir
     ) throws Exception {
 
         ProcessBuilder runBuilder =
                 new ProcessBuilder(
-                        "java",
-                        "Main"
+                        "python",
+                        "main.py"
                 );
 
         runBuilder.directory(
@@ -176,6 +141,6 @@ public class JavaExecutor extends AbstractExecutor {
 
     @Override
     public String getLanguage() {
-        return "java";
+        return "python";
     }
 }
