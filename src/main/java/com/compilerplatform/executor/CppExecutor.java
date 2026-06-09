@@ -28,12 +28,14 @@ public class CppExecutor extends AbstractExecutor {
                             "compiler-"
                     );
 
+            // Create main.cpp
             writeSourceCode(
                     tempDir,
                     "main.cpp",
                     code
             );
 
+            // Compile
             Process compileProcess =
                     compileCode(
                             tempDir
@@ -41,7 +43,6 @@ public class CppExecutor extends AbstractExecutor {
 
             int compileExitCode =
                     compileProcess.waitFor();
-
 
             String compileErrors =
                     readStream(
@@ -65,16 +66,19 @@ public class CppExecutor extends AbstractExecutor {
             long executionStartTime =
                     System.currentTimeMillis();
 
+            // Execute
             Process runProcess =
                     executeCode(
                             tempDir
                     );
 
+            // Send Input
             sendInput(
                     runProcess,
                     input
             );
 
+            // Wait for maximum 5 seconds
             boolean finished =
                     runProcess.waitFor(
                             5,
@@ -84,11 +88,14 @@ public class CppExecutor extends AbstractExecutor {
             if (!finished) {
 
                 runProcess.destroyForcibly();
+                runProcess.waitFor();
 
                 return ExecuteResponse.builder()
                         .status("TIMEOUT")
                         .output("")
-                        .error("Program execution exceeded 5 seconds.")
+                        .error(
+                                "Program execution exceeded 5 seconds."
+                        )
                         .executionTime(
                                 System.currentTimeMillis()
                                         - executionStartTime
@@ -96,16 +103,19 @@ public class CppExecutor extends AbstractExecutor {
                         .build();
             }
 
+            // Read Output
             String output =
                     readStream(
                             runProcess.getInputStream()
                     );
 
+            // Read Runtime Errors
             String runtimeErrors =
                     readStream(
                             runProcess.getErrorStream()
                     );
 
+            // stderr present
             if (!runtimeErrors.isBlank()) {
 
                 return ExecuteResponse.builder()
@@ -119,6 +129,23 @@ public class CppExecutor extends AbstractExecutor {
                         .build();
             }
 
+            // Non-zero exit code
+            if (runProcess.exitValue() != 0) {
+
+                return ExecuteResponse.builder()
+                        .status("RUNTIME_ERROR")
+                        .output("")
+                        .error(
+                                "Program terminated abnormally."
+                        )
+                        .executionTime(
+                                System.currentTimeMillis()
+                                        - executionStartTime
+                        )
+                        .build();
+            }
+
+            // Success
             return ExecuteResponse.builder()
                     .status("SUCCESS")
                     .output(output)
@@ -134,7 +161,9 @@ public class CppExecutor extends AbstractExecutor {
             return ExecuteResponse.builder()
                     .status("ERROR")
                     .output("")
-                    .error(e.getMessage())
+                    .error(
+                            e.getMessage()
+                    )
                     .executionTime(
                             System.currentTimeMillis()
                                     - startTime
@@ -144,9 +173,13 @@ public class CppExecutor extends AbstractExecutor {
         } finally {
 
             if (tempDir != null) {
-                deleteDirectory(
-                        tempDir
-                );
+
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ignored) {
+                }
+
+                deleteDirectory(tempDir);
             }
         }
     }
@@ -180,6 +213,10 @@ public class CppExecutor extends AbstractExecutor {
                                 .resolve("main.exe")
                                 .toString()
                 );
+
+        builder.directory(
+                tempDir.toFile()
+        );
 
         return builder.start();
     }
